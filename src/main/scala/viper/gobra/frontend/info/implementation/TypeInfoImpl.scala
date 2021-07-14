@@ -44,6 +44,8 @@ class TypeInfoImpl(final val tree: Info.GoTree, final val context: Info.Context,
 
   with GhostSeparation
 
+  with OpSignature
+
   with Convertibility
   with Comparability
   with Assignability

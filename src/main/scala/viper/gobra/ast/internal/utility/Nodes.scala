@@ -130,7 +130,7 @@ object Nodes {
         case SequenceTake(left, right) => Seq(left, right)
         case SequenceConversion(expr) => Seq(expr)
         case Cardinality(exp) => Seq(exp)
-        case SetConversion(expr) => Seq(expr)
+        case SetConversion(expr, _) => Seq(expr)
         case MultisetConversion(expr) => Seq(expr)
         case MapKeys(expr) => Seq(expr)
         case MapValues(expr) => Seq(expr)

@@ -54,6 +54,7 @@ trait NameResolution { this: TypeInfoImpl =>
           }
 
         case decl: PTypeDef => NamedType(decl, isGhost, this)
+        case decl: PGenericTypeDef => GenericNamedType(decl, isGhost, this)
         case decl: PTypeAlias => TypeAlias(decl, isGhost, this)
         case decl: PFunctionDecl => Function(decl, isGhost, this)
         case decl: PMethodDecl => MethodImpl(decl, isGhost, this)
@@ -75,8 +76,10 @@ trait NameResolution { this: TypeInfoImpl =>
 
         case decl: PFPredicateDecl => FPredicate(decl, this)
         case decl: PMPredicateDecl => MPredicateImpl(decl, this)
+
         case tree.parent.pair(decl: PAdtClause, adtDecl: PAdtType) => AdtClause(decl, adtDecl, this)
         case tree.parent.pair(decl: PMPredicateSig, tdef: PInterfaceType) => MPredicateSpec(decl, tdef, this)
+        case t: PTypeVarDef => SymTypeVar(t, this)
 
         case tree.parent.pair(decl: PMatchBindVar, adt: PMatchAdt) => MatchVariable(decl, adt, this)
         case tree.parent.pair(decl: PMatchBindVar, tree.parent.pair(_: PMatchStmtCase, matchE: PMatchStatement)) =>
@@ -240,6 +243,8 @@ trait NameResolution { this: TypeInfoImpl =>
         }
       }
 
+      case tree.parent.pair(_: PAdtType, g: PGenericTypeDef) => g.typeArgs.map(_.id)
+
       case _: PAdtType => Vector.empty
 
       case _: PAdtClause => Vector.empty
@@ -326,6 +331,8 @@ trait NameResolution { this: TypeInfoImpl =>
       case tree.parent.pair(id: PIdnDef, _: PMethodDecl) => defEntity(id)
 
       case tree.parent.pair(id: PIdnDef, _: PMPredicateDecl) => defEntity(id)
+
+      case tree.parent.pair(id: PIdnDef, _: PTypeVarDef) => defEntity(id)
 
       case n@ tree.parent.pair(id: PIdnUse, tree.parent(tree.parent(lv: PLiteralValue))) =>
         val litType = expectedMiscType(lv)

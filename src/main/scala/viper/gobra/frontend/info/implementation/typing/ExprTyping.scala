@@ -9,7 +9,7 @@ package viper.gobra.frontend.info.implementation.typing
 import org.bitbucket.inkytonik.kiama.util.Messaging.{Messages, check, error, noMessages}
 import viper.gobra.ast.frontend._
 import viper.gobra.ast.frontend.{AstPattern => ap}
-import viper.gobra.frontend.info.base.DerivableTags
+import viper.gobra.frontend.info.base.{DerivableTags, TypeSubstitution}
 import viper.gobra.frontend.info.base.SymbolTable.{AdtClauseField, AdtDestructor, AdtDiscriminator, SingleConstant}
 import viper.gobra.frontend.info.base.Type._
 import viper.gobra.frontend.info.implementation.TypeInfoImpl
@@ -370,7 +370,7 @@ trait ExprTyping extends BaseTyping { this: TypeInfoImpl =>
         resolve(n.pred.pred).exists(_.isInstanceOf[ap.PredExprInstance]))
 
     case PLength(op) => isExpr(op).out ++ {
-      exprType(op) match {
+      underlyingType(exprType(op))  match {
         case _: ArrayT | _: SliceT | _: GhostSliceT | StringT | _: VariadicT | _: MapT | _: MathMapT  => noMessages
         case t: AdtT => t.derives match {
           case DerivableTags.Default() => error(op, "adt does not derive collection")
@@ -491,6 +491,8 @@ trait ExprTyping extends BaseTyping { this: TypeInfoImpl =>
     case _: PBoolLit => BooleanT
     case _: PNilLit => NilType
     case _: PStringLit => StringT
+
+    case op: PActualOpApp => typeOpApp(op)
 
     case cl: PCompositeLit => expectedCompositeLitType(cl)
 
@@ -843,7 +845,7 @@ trait ExprTyping extends BaseTyping { this: TypeInfoImpl =>
   def expectedCompositeLitType(lit: PCompositeLit): Type = lit.typ match {
     case i: PImplicitSizeArrayType => ArrayT(lit.lit.elems.size, typeSymbType(i.elem))
     case t: PType => typeSymbType(t) match {
-      case t: AdtClauseT => AdtT(t.adtT, DerivableTags.getDerivable(t.adtT.derives)(t.context), t.context)
+      case t: AdtClauseT => AdtT(t.adtT, DerivableTags.getDerivable(t.adtT.derives)(t.context), Vector.empty, t.context)
       case t => t
     }
   }
@@ -853,5 +855,25 @@ trait ExprTyping extends BaseTyping { this: TypeInfoImpl =>
     case typ if underlyingType(typ).isInstanceOf[IntT] => error(expr, s"expected constant int expression", intConstantEval(expr).isEmpty)
     case StringT => error(expr, s"expected constant string expression", stringConstantEval(expr).isEmpty)
     case _ => error(expr, s"expected a constant expression")
+  }
+
+  private[typing] def typeOpApp(opApp: POpApp) = {
+    val args = getArgsOfExp(opApp)
+    val argsT = args map exprType
+    println(s"Arg types: $argsT")
+    val localRenaming = FreshTypeVar.freshTypeSubstitution(opApp.localScope.toSeq)
+    val renamedSignatures = signature(opApp) map {sig => TypeSubstitution.refreshWith(sig, localRenaming)}
+    println(s"Renamed Signatures: $renamedSignatures")
+    val returnTypeVar = POpApp.pRes.substitute(localRenaming).asInstanceOf[FreeTypeVar]
+    val argsRenamed = args.indices map {i => POpApp.pArg(i).substitute(localRenaming)}
+    println(s"Renamed args: $argsRenamed")
+    val triples = argsRenamed.indices map {i => (argsRenamed(i), argsT(i), args(i).typeSubstitutions.distinct.toSeq)}
+    opApp.typeSubstitutions ++= TypeSubstitution.unifySequenceWithSubstitutions(renamedSignatures, triples)
+    val distinctTypeSubs = opApp.typeSubstitutions.distinct
+    violation(distinctTypeSubs.nonEmpty, s"Expr $opApp is not typeable")
+    if (distinctTypeSubs.size == 1)
+      returnTypeVar.substitute(distinctTypeSubs.head)
+    else
+      returnTypeVar
   }
 }

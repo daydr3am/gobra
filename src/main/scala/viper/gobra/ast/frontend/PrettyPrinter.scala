@@ -156,6 +156,7 @@ class DefaultPrettyPrinter extends PrettyPrinter with kiama.output.PrettyPrinter
   def showTypeDecl(decl: PTypeDecl): Doc = decl match {
     case PTypeDef(right, left) => "type" <+> showId(left) <+> showType(right)
     case PTypeAlias(right, left) => "type" <+> showId(left) <+> "=" <+> showType(right)
+    case PGenericTypeDef(right, left, typeArgs) => "type" <+> showId(left) <> "[" <> ssep(typeArgs.map(t => showId(t.id)), ", ") <> "]" <+> showType(right)
   }
 
   def showParameter(para: PParameter): Doc = para match {
@@ -239,7 +240,7 @@ class DefaultPrettyPrinter extends PrettyPrinter with kiama.output.PrettyPrinter
       case PInhale(exp) => "inhale" <+> showExpr(exp)
       case PUnfold(exp) => "unfold" <+> showExpr(exp)
       case PFold(exp) => "fold" <+> showExpr(exp)
-      case PMatchStatement(exp, clauses, strict) => "match" <+>
+      case PMatchStatement(exp, clauses, _) => "match" <+>
         showExpr(exp) <+> block(ssep(clauses map showMatchClauseStatement, line))
     }
   }
@@ -519,6 +520,7 @@ class DefaultPrettyPrinter extends PrettyPrinter with kiama.output.PrettyPrinter
 
   def showActualType(typ : PActualType) : Doc = typ match {
     case PNamedOperand(id) => showId(id)
+    case PGenericNamedType(id, typeVars) => showId(id) <> "[" <> ssep(typeVars map showType, ", ") <> "]"
     case PBoolType() => "bool"
     case PStringType() => "string"
     case PPermissionType() => "perm"
@@ -580,6 +582,7 @@ class DefaultPrettyPrinter extends PrettyPrinter with kiama.output.PrettyPrinter
       "domain" <+> block(
         ssep((funcs ++ axioms) map showMisc, line)
       )
+    case PTypeVarDef(id) => showId(id)
   }
 
   def showStructClause(c: PStructClause): Doc = c match {

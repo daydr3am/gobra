@@ -8,7 +8,7 @@ package viper.gobra.frontend.info.base
 
 import org.bitbucket.inkytonik.kiama.==>
 import org.bitbucket.inkytonik.kiama.util.Messaging.Messages
-import viper.gobra.ast.frontend.{PAdtClause, PAdtType, PDomainType, PImport, PInterfaceType, PNode, PStructType, PTypeDecl}
+import viper.gobra.ast.frontend.{PAdtClause, PAdtType, PDomainType, PGenericTypeDef, PImport, PInterfaceType, PNode, PStructType, PTypeDecl}
 import viper.gobra.frontend.info.ExternalTypeInfo
 import viper.gobra.frontend.info.base.DerivableTags.DerivableTag
 import viper.gobra.util.TypeBounds
@@ -18,7 +18,60 @@ import scala.collection.immutable.ListMap
 
 object Type {
 
-  sealed trait Type
+  trait GenericType extends Type {
+    def genericName : String
+    def typeArguments : Seq[Type]
+    override def isGround: Boolean = typeArguments.forall(_.isGround)
+  }
+
+  sealed trait Type {
+    def substitute(ts: TypeSubstitution): Type = ???
+    def isGround: Boolean = ???
+  }
+
+  sealed trait TypeVar extends Type {
+    def isFree: Boolean
+    def name: String
+
+    override def substitute(ts: TypeSubstitution): Type = ts.getOrElse(this, this)
+  }
+
+  object TypeVar {
+    def unapply(t: TypeVar): String = t.name
+  }
+
+  case class BoundTypeVar(name: String) extends TypeVar {
+    override def isFree: Boolean = false
+  }
+
+  case class FreeTypeVar(name: String) extends TypeVar {
+    override def isFree: Boolean = true
+  }
+
+  object FreshTypeVar {
+
+    private var lastIndex = 0
+
+    def fresh(old: TypeVar): TypeVar = {
+      lastIndex += 1
+      val freshName = getFreshName(old.name)
+      old match {
+        case BoundTypeVar(_) => BoundTypeVar(freshName)
+        case FreeTypeVar(_) => FreeTypeVar(freshName)
+      }
+    }
+
+    private def getFreshName(name: String) = name + "$" + lastIndex
+
+    def freshTypeSubstitutionTypes(tv : Seq[TypeVar]) : TypeRenaming = {
+      freshTypeSubstitution(tv)
+    }
+
+    def freshTypeSubstitution(names: Seq[TypeVar]) : TypeRenaming = {
+      lastIndex += 1
+      new TypeRenaming((names zip names.map(fresh)).toMap)
+    }
+  }
 
   abstract class PrettyType(pretty: => String) extends Type {
     override lazy val toString: String = pretty
@@ -26,6 +79,10 @@ object Type {
 
   sealed trait ContextualType extends Type {
     val context: ExternalTypeInfo
+  }
+
+  sealed trait Primitive extends Type {
+    override def substitute(ts: TypeSubstitution): Type = this
   }
 
   case object UnknownType extends PrettyType("unknown")
@@ -36,11 +93,17 @@ object Type {
 
   case class DeclaredT(decl: PTypeDecl, context: ExternalTypeInfo) extends PrettyType(decl.left.name) with ContextualType
 
-  case object BooleanT extends PrettyType("bool")
+  case class GenericDeclaredT(decl: PGenericTypeDef, context: ExternalTypeInfo, typeArguments: Seq[Type]) extends GenericType with ContextualType {
+    override def genericName: String = decl.left.name
+
+    override def substitute(ts: TypeSubstitution): Type = GenericDeclaredT(decl, context, typeArguments.map(t => t.substitute(ts)))
+  }
+
+  case object BooleanT extends PrettyType("bool") with Primitive
 
   case object StringT extends PrettyType("string")
 
-  case class IntT(kind: TypeBounds.IntegerKind) extends PrettyType(kind.name)
+  case class IntT(kind: TypeBounds.IntegerKind) extends PrettyType(kind.name) with Primitive
 
   case class ArrayT(length: BigInt, elem: Type) extends PrettyType(s"[$length]$elem") {
     require(length >= 0, "The length of an array must be non-negative")
@@ -52,7 +115,11 @@ object Type {
 
   case class OptionT(elem : Type) extends PrettyType(s"option[$elem]")
 
-  case class AdtT(decl: PAdtType, derives: DerivableTag, context: ExternalTypeInfo) extends Type
+  case class AdtT(decl: PAdtType, derives: DerivableTag, typeArguments: Vector[Type], context: ExternalTypeInfo) extends GenericType {
+    override def genericName: String = s"${decl}"
+
+    override def substitute(ts: TypeSubstitution): Type = AdtT(decl, derives, typeArguments map {t => t.substitute(ts)}, context)
+  }
 
   case class AdtClauseT(clauses: Map[String, Type], decl: PAdtClause, adtT: PAdtType, context: ExternalTypeInfo) extends Type
 
@@ -120,19 +187,34 @@ object Type {
 
   case class GhostSliceT(elem: Type) extends PrettyType(s"ghost []$elem") with GhostType
 
-  sealed trait GhostCollectionType extends GhostType {
+  sealed trait GhostCollectionType extends GhostType with GenericType {
     def elem : Type
+
+    override def typeArguments: Seq[Type] = Seq(elem)
   }
 
-  case class SequenceT(elem : Type) extends PrettyType(s"seq[$elem]") with GhostCollectionType
+  case class SequenceT(elem : Type) extends PrettyType(s"seq[$elem]") with GhostCollectionType {
+    override def genericName: String = "seq"
+  }
 
   sealed trait GhostUnorderedCollectionType extends GhostCollectionType
 
-  case class SetT(elem : Type) extends PrettyType(s"set[$elem]") with GhostUnorderedCollectionType
+  case class SetT(elem : Type) extends PrettyType(s"set[$elem]") with GhostUnorderedCollectionType {
+    override def substitute(ts: TypeSubstitution): Type = SetT(elem.substitute(ts))
 
-  case class MultisetT(elem : Type) extends PrettyType(s"mset[$elem]") with GhostUnorderedCollectionType
+    override def genericName: String = "set"
+  }
 
-  case class MathMapT(key : Type, elem : Type) extends PrettyType(s"mmap[$key]$elem") with GhostUnorderedCollectionType
+  case class MultisetT(elem : Type) extends PrettyType(s"mset[$elem]") with GhostUnorderedCollectionType {
+    override def genericName: String = "mset"
+
+    override def substitute(ts: TypeSubstitution): Type = MultisetT(elem.substitute(ts))
+  }
+
+  case class MathMapT(key : Type, elem : Type) extends PrettyType(s"mmap[$key]$elem") with GhostUnorderedCollectionType  {
+    override def typeArguments: Seq[Type] = Seq(key, elem)
+    override def genericName: String = "mmap"
+  }
 
   case object PermissionT extends PrettyType(s"perm") with GhostType
 

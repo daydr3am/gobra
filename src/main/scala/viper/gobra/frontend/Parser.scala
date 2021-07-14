@@ -407,10 +407,18 @@ object Parser {
         "type" ~> "(" ~> (typeSpec <~ eos).* <~ ")"
 
     lazy val typeSpec: Parser[PTypeDecl] =
-      typeDefSpec | typeAliasSpec
+      genericTypeDefSpec | typeDefSpec | typeAliasSpec
 
     lazy val typeDefSpec: Parser[PTypeDef] =
       idnDef ~ typ ^^ { case left ~ right => PTypeDef(right, left)}
+
+    lazy val genericTypeDefSpec: Parser[PGenericTypeDef] = {
+      idnDef ~ ("[" ~> rep1sep(typeVar, ",") <~ "]") ~ adtType ^^ {case left ~ tp ~ right => PGenericTypeDef(right, left, tp) }
+    }
+
+    lazy val typeVar: Parser[PTypeVarDef] = {
+      idnDef ^^ PTypeVarDef
+    }
 
     lazy val typeAliasSpec: Parser[PTypeAlias] =
       (idnDef <~ "=") ~ typ ^^ { case left ~ right => PTypeAlias(right, left)}
@@ -1067,6 +1075,7 @@ object Parser {
 
 
     lazy val namedType: Parser[PNamedType] =
+      genericDeclaredType |
       predeclaredType |
         declaredType
 
@@ -1117,6 +1126,9 @@ object Parser {
 
     lazy val declaredType: Parser[PNamedOperand] =
       idnUse ^^ PNamedOperand
+
+    lazy val genericDeclaredType: Parser[PGenericNamedType] =
+      idnUse ~ ("[" ~> rep1sep(typ, ",") <~ "]") ^^ {case id ~ tvs => PGenericNamedType(id, tvs)}
 
     lazy val literalType: Parser[PLiteralType] = {
         sliceType |

@@ -1112,7 +1112,7 @@ object Desugar {
     }
 
 
-    def adtSelectionD(ctx: FunctionContext)(p: ap.AdtField)(src: Meta): Writer[in.Expr] = {
+    def adtSelectionD(ctx: FunctionContext)(p: ap.AdtField, exp: PExpression)(src: Meta): Writer[in.Expr] = {
       for {
         base <- exprD(ctx)(p.base)
       } yield p.symb match {
@@ -1120,7 +1120,7 @@ object Desugar {
           val adtT : AdtT = context.symbType(adtDecl).asInstanceOf[AdtT]
           in.AdtDestructor(base, in.Field(
             nm.adtField(decl.id.name, adtT),
-            typeD(context.symbType(decl.typ), Addressability.mathDataStructureElement)(src),
+            typeD(context.typ(exp), Addressability.mathDataStructureElement)(src),
             ghost = true
           )(src))(src)
 
@@ -1486,7 +1486,7 @@ object Desugar {
             case Some(_: ap.NamedType) =>
               val name = typeD(info.symbType(n), Addressability.Exclusive)(src).asInstanceOf[in.DefinedT].name
               unit(in.DefinedTExpr(name)(src))
-            case Some(p: ap.AdtField) => adtSelectionD(ctx)(p)(src)
+            case Some(p: ap.AdtField) => adtSelectionD(ctx)(p, n)(src)
             case Some(p) => Violation.violation(s"only field selections, global constants, and types can be desugared to an expression, but got $p")
             case _ => Violation.violation(s"could not resolve $n")
           }
@@ -2373,7 +2373,7 @@ object Desugar {
 
       case t: Type.AdtClauseT =>
         val derives = DerivableTags.getDerivable(t.adtT.derives)(t.context)
-        val tAdt = Type.AdtT(t.adtT, derives, t.context)
+        val tAdt = Type.AdtT(t.adtT, derives, Vector.empty, t.context)
         val adt : in.AdtT = in.AdtT(nm.adt(tAdt), addrMod, getAdtClauseTagMap(tAdt), derivableD(derives, tAdt, t.context.getTypeInfo)(src))
         val fields : Vector[in.Field] = (t.clauses map {case (key: String, typ: Type) => {
           in.Field(nm.adtField(key, tAdt), typeD(typ, Addressability.mathDataStructureElement)(src), true)(src)
@@ -2630,10 +2630,18 @@ object Desugar {
           }
         case PExplicitGhostStatement(actual) => stmtD(ctx)(actual)
         case PMatchStatement(exp, clauses, strict) => {
-          def goC(clause: PMatchStmtCase): Writer[in.PatternMatchCaseStmt] = for {
-            eM <- matchPatternD(ctx)(clause.pattern)
-            s <- sequence(clause.stmt map stmtD(ctx))
-          } yield in.PatternMatchCaseStmt(eM, s)(src)
+          def goC(clause: PMatchStmtCase): Writer[in.PatternMatchCaseStmt] = {
+
+            val body = block(
+              for {
+                s <- sequence(clause.stmt map stmtD(ctx))
+              } yield in.Seqn(s)(src)
+            )
+            for {
+              eM <- matchPatternD(ctx)(clause.pattern)
+            } yield in.PatternMatchCaseStmt(eM, body)(src)
+
+          }
 
           for {
             e <- exprD(ctx)(exp)
@@ -2760,9 +2768,9 @@ object Desugar {
           dop <- go(op)
         } yield underlyingType(dop.typ) match {
           case _: in.SetT => dop
-          case _: in.SequenceT => in.SetConversion(dop)(src)
-          case _: in.OptionT => in.SetConversion(in.SequenceConversion(dop)(src))(src)
-          case _: in.AdtT => in.SetConversion(dop)(src)
+          case t: in.SequenceT => in.SetConversion(dop, t)(src)
+          case t: in.OptionT => in.SetConversion(in.SequenceConversion(dop)(src), t)(src)
+          case t: in.AdtT => in.SetConversion(dop, t)(src)
           case t => violation(s"expected a sequence, set, adt or option type, but found $t")
         }
 

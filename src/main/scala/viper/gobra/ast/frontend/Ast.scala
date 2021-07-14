@@ -7,12 +7,12 @@
 package viper.gobra.ast.frontend
 
 import java.nio.file.Paths
-
 import org.bitbucket.inkytonik.kiama.rewriting.Rewritable
 import org.bitbucket.inkytonik.kiama.util.Messaging.Messages
 import org.bitbucket.inkytonik.kiama.util._
 import viper.gobra.ast.frontend.PNode.PPkg
 import viper.gobra.frontend.Parser.FromFileSource
+import viper.gobra.frontend.info.base.{TypeSubstitution, Type => info}
 import viper.gobra.reporting.VerifierError
 import viper.silver.ast.{LineColumnPosition, SourcePosition}
 
@@ -161,6 +161,10 @@ sealed trait PTypeDecl extends PActualMember with PActualStatement with PGhostif
 
 case class PTypeDef(right: PType, left: PIdnDef) extends PTypeDecl
 
+case class PTypeVarDef(id: PIdnDef) extends PGhostType
+
+case class PGenericTypeDef(right: PType, left: PIdnDef, typeArgs: Vector[PTypeVarDef]) extends PTypeDecl
+
 case class PTypeAlias(right: PType, left: PIdnDef) extends PTypeDecl
 
 
@@ -285,7 +289,9 @@ case class PSeq(stmts: Vector[PStatement]) extends PActualStatement with PGhosti
 sealed trait PExpressionOrType extends PNode
 sealed trait PExpressionAndType extends PNode with PExpression with PType
 
-sealed trait PExpression extends PNode with PExpressionOrType
+sealed trait PExpression extends PNode with PExpressionOrType {
+  def typeSubstitutions : scala.collection.Seq[TypeSubstitution] = Seq.empty
+}
 
 sealed trait PActualExpression extends PExpression
 
@@ -304,6 +310,12 @@ case class PBlankIdentifier() extends PAssignee
 
 case class PNamedOperand(id: PIdnUse) extends PActualExpression with PActualType with PExpressionAndType with PAssignee with PLiteralType with PNamedType with PNameOrDot{
   override val name : String = id.name
+
+  override def typeSubstitutions: collection.Seq[TypeSubstitution] = List(TypeSubstitution.id)
+}
+
+case class PGenericNamedType(id: PIdnUse, typeVars: Vector[PType]) extends PNamedType {
+  override def name: String = s"$id[${typeVars.mkString(", ")}]"
 }
 
 sealed trait PLiteral extends PActualExpression
@@ -351,7 +363,9 @@ object PLiteral {
   */
 sealed trait PNumExpression extends PExpression
 
-sealed trait PBasicLiteral extends PLiteral
+sealed trait PBasicLiteral extends PLiteral {
+  override def typeSubstitutions: collection.Seq[TypeSubstitution] = Seq(TypeSubstitution.id)
+}
 
 case class PBoolLit(lit: Boolean) extends PBasicLiteral
 
@@ -385,7 +399,9 @@ case class PInvoke(base: PExpressionOrType, args: Vector[PExpression]) extends P
 
 // TODO: Check Arguments in language specification, also allows preceding type
 
-case class PDot(base: PExpressionOrType, id: PIdnUse) extends PActualExpression with PActualType with PExpressionAndType with PAssignee with PLiteralType with PNameOrDot
+case class PDot(base: PExpressionOrType, id: PIdnUse) extends PActualExpression with PActualType with PExpressionAndType with PAssignee with PLiteralType with PNameOrDot with PActualOpApp {
+  override def args: Seq[PExpression] = Seq.empty
+}
 
 case class PIndexedExp(base: PExpression, index: PExpression) extends PActualExpression with PAssignee
 
@@ -518,6 +534,33 @@ sealed trait PNamedType extends PActualType {
   def name: String
 }
 
+sealed trait POpApp extends PExpression {
+  def args: Seq[PExpression]
+
+  private val _typeSubstitutions = new scala.collection.mutable.ArrayDeque[TypeSubstitution]()
+  override def typeSubstitutions = _typeSubstitutions
+
+  def extraLocalTypeVariables : Set[info.TypeVar] = Set()
+  def localScope : Set[info.TypeVar] =
+    extraLocalTypeVariables union
+      Set(POpApp.pRes) union
+      args.indices.map(POpApp.pArg).toSet
+
+
+}
+object POpApp{
+  //type PTypeSubstitution = Map[PDomainType,PType]
+  val idPTypeSubstitution: TypeSubstitution = TypeSubstitution(Map.empty)
+  def pArgS(n:Int): String = { require(n>=0); "T"+n.toString}
+  def pResS: String = "R"
+  def pArg(n:Int): info.TypeVar = { require(n>=0); info.FreeTypeVar(pArgS(n))}
+  def pRes: info.TypeVar = info.FreeTypeVar(pResS)
+}
+
+sealed trait PGhostOpApp extends POpApp with PGhostExpression
+
+sealed trait PActualOpApp extends POpApp
+
 sealed abstract class PPredeclaredType(override val name: String) extends PNamedType
 
 case class PBoolType() extends PPredeclaredType("bool")
@@ -631,6 +674,7 @@ case class PMethodSig(id: PIdnDef, args: Vector[PParameter], result: PResult, sp
 
 sealed trait PIdnNode extends PNode {
   def name: String
+
 }
 
 sealed trait PDefLikeId extends PIdnNode
@@ -824,7 +868,7 @@ case class PMatchExp(exp: PExpression, clauses: Vector[PMatchExpClause]) extends
   val hasNoDefault: Boolean = defaultClauses.isEmpty
 }
 
-sealed trait PMatchExpClause extends PGhostMisc {
+sealed trait PMatchExpClause extends PGhostMisc  with PScope {
   def exp: PExpression
 }
 
@@ -916,7 +960,13 @@ case class PIn(left : PExpression, right : PExpression) extends PGhostCollection
   * Denotes the cardinality of `exp`, which is expected
   * to be either a set or a multiset.
   */
-case class PCardinality(exp : PExpression) extends PGhostCollectionExp
+case class PCardinality(exp : PExpression) extends PGhostCollectionExp with PGhostOpApp {
+  val elementType: info.TypeVar = info.FreeTypeVar("E")
+
+  override def args = Seq(exp)
+
+  override def extraLocalTypeVariables: Set[info.TypeVar] = Set(elementType)
+}
 
 /**
   * Represents a multiplicity expression of the form "`left` # `right`"

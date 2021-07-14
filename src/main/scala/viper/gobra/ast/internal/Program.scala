@@ -343,7 +343,7 @@ case class PatternMatchCaseExp(mExp: MatchPattern, exp: Expr)(val info: Source.P
 
 case class PatternMatchStmt(exp: Expr, cases: Vector[PatternMatchCaseStmt], strict: Boolean)(val info: Source.Parser.Info) extends Stmt
 
-case class PatternMatchCaseStmt(mExp: MatchPattern, body: Vector[Stmt])(val info: Source.Parser.Info) extends Node
+case class PatternMatchCaseStmt(mExp: MatchPattern, body: Stmt)(val info: Source.Parser.Info) extends Node
 
 sealed trait MatchPattern extends Node
 
@@ -765,7 +765,8 @@ case class SetLit(memberType : Type, exprs : Vector[Expr])(val info : Source.Par
   * Represents the conversion of a collection of type 't', represented by `exp`,
   * to a (mathematical) set of type 't'.
   */
-case class SetConversion(expr : Expr)(val info: Source.Parser.Info) extends Expr {
+case class SetConversion(expr : Expr, elementType: Type)(val info: Source.Parser.Info) extends Expr {
+  /*
   override val typ : Type = expr.typ match {
     case SequenceT(t, _) => SetT(t, Addressability.conversionResult)
     case SetT(t, _) => SetT(t, Addressability.conversionResult)
@@ -773,6 +774,9 @@ case class SetConversion(expr : Expr)(val info: Source.Parser.Info) extends Expr
     case ArrayT(_, t, Addressability.Exclusive) => SetT(t, Addressability.conversionResult)
     case t => Violation.violation(s"expected a sequence or set type but got $t")
   }
+  */
+
+  override def typ: Type = SetT(elementType, Addressability.conversionResult)
 }
 
 

@@ -20,7 +20,7 @@ trait IdTyping extends BaseTyping { this: TypeInfoImpl =>
 
   implicit lazy val wellDefID: WellDefinedness[PIdnNode] = createWellDefWithValidityMessages {
     id =>
-      entity(id) match {
+       entity(id) match {
       case _: UnknownEntity => LocalMessages(error(id, s"got unknown identifier $id"))
       case _: MultipleEntity => LocalMessages(error(id, s"got duplicate identifier $id"))
       case ErrorMsgEntity(msg) => LocalMessages(msg) // use provided error message instead of creating an own one
@@ -79,6 +79,10 @@ trait IdTyping extends BaseTyping { this: TypeInfoImpl =>
 
     case NamedType(_, _, _) => LocalMessages(noMessages)
 
+    case GenericNamedType(_, _, _) => LocalMessages(noMessages)
+
+    case SymTypeVar(_, _) => LocalMessages(noMessages)
+
     case TypeAlias(PTypeAlias(right, _), _, _) => unsafeMessage(! {
       wellDefAndType.valid(right)
     })
@@ -129,12 +133,13 @@ trait IdTyping extends BaseTyping { this: TypeInfoImpl =>
   lazy val idSymType: Typing[PIdnNode] = createTyping { id =>
     entity(id) match {
       case NamedType(decl, _, context) => DeclaredT(decl, context)
+      case GenericNamedType(decl, _, context) => GenericDeclaredT(decl, context, decl.typeArgs map context.symbType)
       case Import(decl, _) => ImportT(decl)
       case a : AdtClause => {
         val types = a.fields.map(f => f.id.name -> symbType(f.typ)).toMap
         AdtClauseT(types, a.decl, a.adtDecl, this)
       }
-      case _ => violation(s"expected type, but got $id")
+      case SymTypeVar(decl, _) => BoundTypeVar(decl.id.name)
     }
   }
 
@@ -177,6 +182,8 @@ trait IdTyping extends BaseTyping { this: TypeInfoImpl =>
     case NamedType(_, _, _) => SortT // DeclaredT(decl, context)
     case TypeAlias(PTypeAlias(right, _), _, context) => context.symbType(right)
 
+    case SymTypeVar(id, _) => BoundTypeVar(id.id.name)
+
     case InParameter(p, _, _, context) => context.symbType(p.typ)
 
     case ReceiverParameter(p, _, _, context) => context.symbType(p.typ)
@@ -199,6 +206,8 @@ trait IdTyping extends BaseTyping { this: TypeInfoImpl =>
     case Import(decl, _) => ImportT(decl)
 
     case Wildcard(decl, _) => getWildcardType(decl)
+
+    case GenericNamedType(_, _, _) => SortT
 
     case e => violation(s"untypable: $e")
   }

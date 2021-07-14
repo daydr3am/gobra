@@ -7,10 +7,12 @@
 package viper.gobra.frontend.info.implementation.typing
 
 import org.bitbucket.inkytonik.kiama.util.Messaging.{Messages, error, noMessages}
+
 import scala.collection.immutable.ListMap
 import viper.gobra.ast.frontend._
 import viper.gobra.ast.frontend.{AstPattern => ap}
 import viper.gobra.frontend.info.base.Type.{StructT, _}
+import viper.gobra.frontend.info.base.TypeSubstitution
 import viper.gobra.frontend.info.implementation.TypeInfoImpl
 
 trait TypeTyping extends BaseTyping { this: TypeInfoImpl =>
@@ -19,7 +21,7 @@ trait TypeTyping extends BaseTyping { this: TypeInfoImpl =>
 
   lazy val isType: WellDefinedness[PExpressionOrType] = createWellDef[PExpressionOrType] { n: PExpressionOrType =>
     val isTypeCondition = exprOrType(n).isRight
-    error(n, s"expected expression, but got $n", !isTypeCondition)
+    error(n, s"expected type, but got $n", !isTypeCondition)
   }
 
   lazy val wellDefAndType: WellDefinedness[PType] = createWellDef { n =>
@@ -67,6 +69,9 @@ trait TypeTyping extends BaseTyping { this: TypeInfoImpl =>
     case t: PInterfaceType => addressableMethodSet(InterfaceT(t, this)).errors(t)
 
     case t: PExpressionAndType => wellDefExprAndType(t).out
+
+    case t: PGenericNamedType => t.typeVars.flatMap(types => isType(types).out) ++
+      error(t, s"expected generic type but got ${idSymType(t.id)}", !idSymType(t.id).isInstanceOf[GenericType])
   }
 
   lazy val typeSymbType: Typing[PType] = createTyping {
@@ -123,6 +128,12 @@ trait TypeTyping extends BaseTyping { this: TypeInfoImpl =>
     case t: PInterfaceType => InterfaceT(t, this)
 
     case n: PNamedOperand => idSymType(n.id)
+
+    case n: PGenericNamedType =>
+      val t = underlyingType(idSymType(n.id)).asInstanceOf[GenericType]
+      val ts: TypeSubstitution = (t.typeArguments.map(_.asInstanceOf[TypeVar]) zip n.typeVars.map(typeSymbType)).toMap
+      t.substitute(ts)
+
 
     case n: PDeref =>
       resolve(n) match {

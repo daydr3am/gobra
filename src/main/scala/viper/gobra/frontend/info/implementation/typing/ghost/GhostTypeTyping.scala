@@ -30,6 +30,7 @@ trait GhostTypeTyping extends BaseTyping { this : TypeInfoImpl =>
 
     case _: PDomainType => noMessages
     case _ : PAdtType => noMessages
+    case _: PTypeVarDef => noMessages
   }
 
   private[typing] def ghostTypeSymbType(typ : PGhostType) : Type = typ match {
@@ -40,6 +41,8 @@ trait GhostTypeTyping extends BaseTyping { this : TypeInfoImpl =>
     case POptionType(elem) => OptionT(typeSymbType(elem))
     case PGhostSliceType(elem) => GhostSliceT(typeSymbType(elem))
     case t: PDomainType => DomainT(t, this)
-    case a: PAdtType => AdtT(a, DerivableTags.getDerivable(a.derives)(this), this)
+    case tree.parent.pair(a: PAdtType, d: PGenericTypeDef) => AdtT(a, DerivableTags.getDerivable(a.derives)(this), d.typeArgs map this.symbType, this)
+    case a: PAdtType => AdtT(a, DerivableTags.getDerivable(a.derives)(this), Vector.empty, this)
+    case a: PTypeVarDef => BoundTypeVar(a.id.name)
   }
 }

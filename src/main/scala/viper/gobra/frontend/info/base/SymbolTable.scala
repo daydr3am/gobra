@@ -134,6 +134,11 @@ object SymbolTable extends Environments[Entity] {
     override def rep: PNode = decl
   }
 
+  case class GenericNamedType(decl: PGenericTypeDef, ghost: Boolean, context: ExternalTypeInfo) extends ActualTypeEntity {
+    require(!ghost, "type entities are not supported to be ghost yet") // TODO
+    override def rep: PNode = decl
+  }
+
 
   sealed trait TypeMember extends Regular
 
@@ -223,6 +228,12 @@ object SymbolTable extends Environments[Entity] {
     override def rep: PNode = decl
 
     override def addressable: Boolean = false
+  }
+
+  case class SymTypeVar(decl: PTypeVarDef, context: ExternalTypeInfo) extends ActualTypeMember with TypeEntity {
+    override def rep: PNode = decl
+
+    override def ghost: Boolean = false
   }
 
   case class AdtClause(decl: PAdtClause, adtDecl: PAdtType, context: ExternalTypeInfo) extends GhostTypeMember {

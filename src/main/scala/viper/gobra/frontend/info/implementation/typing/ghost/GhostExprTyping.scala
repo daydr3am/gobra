@@ -166,17 +166,17 @@ trait GhostExprTyping extends BaseTyping { this: TypeInfoImpl =>
             error(expr.right, s"expected an unordered collection, but got $t2", !t2.isInstanceOf[GhostUnorderedCollectionType]) ++
             mergeableTypes.errors(t1, t2)(expr)
         }
-        case PSetConversion(op) => exprType(op) match {
+        case PSetConversion(op) => underlyingType(exprType(op)) match {
           case SequenceT(_) | SetT(_) | OptionT(_) => isExpr(op).out
-          case AdtT(_, derives, _) => derives match {
+          case AdtT(_, derives, _, _)  => derives match {
             case DerivableTags.Collection(_, _) => isExpr(op).out
             case _ => error(op, s"adt does not derive collection")
           }
           case t => error(op, s"expected a sequence, set, adt or option type, but got $t")
         }
-        case PMultisetConversion(op) => exprType(op) match {
+        case PMultisetConversion(op) => underlyingType(exprType(op))  match {
           case SequenceT(_) | MultisetT(_) | OptionT(_) => isExpr(op).out
-          case AdtT(_, derives, _) => derives match {
+          case AdtT(_, derives, _, _) => derives match {
             case DerivableTags.Collection(_, _) => isExpr(op).out
             case _ => error(op, s"adt does not derive collection")
           }
@@ -237,6 +237,8 @@ trait GhostExprTyping extends BaseTyping { this: TypeInfoImpl =>
       case t => violation(s"expected an option type, but got $t")
     }
 
+    case opApp: PGhostOpApp => typeOpApp(opApp)
+
     case m: PMatchExp => if (m.clauses.isEmpty) exprType(m.defaultClauses.head.exp) else exprType(m.caseClauses.head.exp)
 
     case expr : PGhostCollectionExp => expr match {
@@ -267,7 +269,7 @@ trait GhostExprTyping extends BaseTyping { this: TypeInfoImpl =>
           case PSubset(_, _) => BooleanT
           case _ => exprType(expr.left)
         }
-        case PSetConversion(op) => exprType(op) match {
+        case PSetConversion(op) => underlyingType(exprType(op))  match {
           case t: GhostCollectionType => SetT(t.elem)
           case t: OptionT => SetT(t.elem)
           case t: AdtT => t.derives match {
@@ -276,7 +278,7 @@ trait GhostExprTyping extends BaseTyping { this: TypeInfoImpl =>
           }
           case t => violation(s"expected a sequence, set, multiset, adt or option type, but got $t")
         }
-        case PMultisetConversion(op) => exprType(op) match {
+        case PMultisetConversion(op) => underlyingType(exprType(op))  match {
           case t : GhostCollectionType => MultisetT(t.elem)
           case t: OptionT => MultisetT(t.elem)
           case t: AdtT => t.derives match {
